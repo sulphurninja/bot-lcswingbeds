@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import Image from 'next/image';
 
 interface Message {
   id: string;
@@ -32,6 +33,53 @@ export default function ChatInterface() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Function to parse content and render text with inline images
+  const parseContentWithImages = (content: string) => {
+    const imageRegex = /\[IMAGE:\s*(https?:\/\/[^\]]+)\]/g;
+    const parts = [];
+    let lastIndex = 0;
+    let match;
+
+    while ((match = imageRegex.exec(content)) !== null) {
+      // Add text before the image
+      if (match.index > lastIndex) {
+        const textBefore = content.slice(lastIndex, match.index);
+        if (textBefore.trim()) {
+          parts.push({
+            type: 'text',
+            content: textBefore.trim(),
+          });
+        }
+      }
+
+      // Add the image
+      parts.push({
+        type: 'image',
+        content: match[1],
+      });
+
+      lastIndex = match.index + match[0].length;
+    }
+
+    // Add any remaining text
+    if (lastIndex < content.length) {
+      const remainingText = content.slice(lastIndex);
+      if (remainingText.trim()) {
+        parts.push({
+          type: 'text',
+          content: remainingText.trim(),
+        });
+      }
+    }
+
+    // If no images found, return the original content as text
+    if (parts.length === 0) {
+      return [{ type: 'text', content }];
+    }
+
+    return parts;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,7 +150,7 @@ export default function ChatInterface() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-white">
+    <div className="h-full flex flex-col">
       {/* Header */}
       <div className="bg-gradient-to-r from-[#204532] to-[#61CE70] p-3 flex-shrink-0">
         <div className="flex items-center gap-2">
@@ -114,8 +162,8 @@ export default function ChatInterface() {
         </div>
       </div>
 
-      {/* Messages Container */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-gray-50">
+      {/* Messages Container - takes remaining space */}
+      <div className="flex-1 overflow-y-auto space-y-3 min-h-0 p-3">
         {messages.map((message) => (
           <div
             key={message.id}
@@ -134,9 +182,34 @@ export default function ChatInterface() {
               "max-w-[85%] rounded-lg px-3 py-2 text-sm",
               message.role === 'user'
                 ? 'bg-[#204532] text-white rounded-br-sm'
-                : 'bg-white text-gray-800 border border-gray-200 rounded-bl-sm'
+                : 'bg-gray-50 text-gray-800 border border-gray-200 rounded-bl-sm'
             )}>
-              <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+              {/* Parse and render content with inline images */}
+              {parseContentWithImages(message.content).map((part, partIndex) => (
+                <div key={partIndex}>
+                  {part.type === 'text' ? (
+                    <p className="whitespace-pre-wrap leading-relaxed">
+                      {part.content}
+                    </p>
+                  ) : (
+                    <div className="my-2">
+                      <div className="rounded-lg overflow-hidden border border-gray-200 max-w-[200px]">
+                        <Image
+                          src={part.content}
+                          alt="Swing Bed Product"
+                          width={200}
+                          height={200}
+                          className="w-full h-auto object-cover hover:scale-105 transition-transform duration-200"
+                          onError={(e) => {
+                            // Hide broken images gracefully
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
 
             {message.role === 'user' && (
@@ -153,7 +226,7 @@ export default function ChatInterface() {
             <div className="w-6 h-6 rounded-full bg-[#FFE3C6] flex items-center justify-center flex-shrink-0 mt-1">
               <Bot className="w-3 h-3 text-[#204532]" />
             </div>
-            <div className="bg-white border border-gray-200 rounded-lg rounded-bl-sm px-3 py-2">
+            <div className="bg-gray-50 border border-gray-200 rounded-lg rounded-bl-sm px-3 py-2">
               <div className="flex gap-1">
                 <div className="w-2 h-2 bg-[#61CE70] rounded-full animate-bounce"></div>
                 <div className="w-2 h-2 bg-[#61CE70] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
@@ -166,10 +239,11 @@ export default function ChatInterface() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Quick Suggestions */}
+      {/* Quick Suggestions - only shows initially */}
       {messages.length === 1 && !isLoading && (
-        <div className="px-3 py-2 bg-white border-t border-gray-200 flex-shrink-0">
-          <div className="flex flex-wrap gap-1">
+        <div className="px-3 py-2 flex-shrink-0">
+          <p className="text-xs text-gray-600 mb-2">Quick questions:</p>
+          <div className="flex flex-wrap gap-2">
             {quickSuggestions.map((suggestion, index) => (
               <button
                 key={index}
@@ -183,8 +257,8 @@ export default function ChatInterface() {
         </div>
       )}
 
-      {/* Input Form */}
-      <div className="p-3 bg-white border-t border-gray-200 flex-shrink-0">
+      {/* Input Form - fixed at bottom */}
+      <div className="p-3 flex-shrink-0">
         <form onSubmit={handleSubmit} className="flex gap-2">
           <input
             ref={inputRef}
@@ -213,6 +287,11 @@ export default function ChatInterface() {
             )}
           </button>
         </form>
+        
+        {/* Footer Info */}
+        <div className="flex items-center justify-center mt-2 text-xs text-gray-500">
+          <span>Handcrafted in Charleston • Est. 2012</span>  
+        </div>
       </div>
     </div>
   );
