@@ -16,7 +16,7 @@ export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      content: "Hi! I'm your LC Swing Beds assistant. Ask me about our handcrafted swing beds, sizing, pricing, or installation!",
+      content: "Hi! I'm your Lowcountry Swing Beds assistant. Ask me about our handcrafted swing beds, sizing, pricing, or installation!",
       role: 'assistant',
       timestamp: new Date(),
     },
