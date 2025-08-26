@@ -156,7 +156,7 @@ export default function ChatInterface() {
         <div className="flex items-center gap-2">
           <Bot className="w-5 h-5 text-white" />
           <div>
-            <h3 className="text-white font-medium text-sm">LC Swing Beds Assistant</h3>
+            <h3 className="text-white font-medium text-sm">Lowcountry Swing Beds Assistant</h3>
             <p className="text-[#FFE3C6]/80 text-xs">Handcrafted in Charleston since 2012</p>
           </div>
         </div>
