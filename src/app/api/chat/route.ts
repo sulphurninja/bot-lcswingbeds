@@ -264,6 +264,9 @@ const QUICK_QA = `
 QUICK REFERENCE Q&A:
 
 INSTALLATION & SETUP:
+Q: Do you offer installation services?
+A: We work with an insured third-party installer who services a 150-mile radius around Charleston. If you are unsure if you fall within that radius, please send an inquiry email to relax@lcswingbeds.com with your delivery address.
+
 Q: What clearance do I need around a swing?
 A: Sides & back: 10–24 inches; front: 20–24 inches.
 
@@ -332,7 +335,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     console.log('Received body:', body); // Debug log
-    
+
     // Handle different possible formats
     let messages;
     if (body.messages && Array.isArray(body.messages)) {
