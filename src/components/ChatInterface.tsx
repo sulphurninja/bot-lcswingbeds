@@ -23,8 +23,12 @@ export default function ChatInterface() {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substring(2)}`);
+  const [isSessionActive, setIsSessionActive] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const sessionTimeoutRef = useRef<NodeJS.Timeout>();
+  const lastActivityRef = useRef<Date>(new Date());
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -33,6 +37,238 @@ export default function ChatInterface() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Reset session timeout whenever there's activity
+  const resetSessionTimeout = () => {
+    lastActivityRef.current = new Date();
+
+    if (sessionTimeoutRef.current) {
+      clearTimeout(sessionTimeoutRef.current);
+    }
+
+    // Set 5-minute timeout
+    sessionTimeoutRef.current = setTimeout(() => {
+      // Only end if still inactive after 5 minutes
+      const now = new Date();
+      const timeSinceLastActivity = now.getTime() - lastActivityRef.current.getTime();
+
+      if (timeSinceLastActivity >= 5 * 60 * 1000) { // 5 minutes
+        endSession();
+      } else {
+        // Reset timeout for remaining time
+        const remainingTime = 5 * 60 * 1000 - timeSinceLastActivity;
+        sessionTimeoutRef.current = setTimeout(() => {
+          endSession();
+        }, remainingTime);
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+  };
+
+  // End session and send email
+  const endSession = async () => {
+    if (!isSessionActive) return;
+
+    setIsSessionActive(false);
+    console.log('Session ended due to inactivity');
+
+    // Clear any pending timeouts
+    if (sessionTimeoutRef.current) {
+      clearTimeout(sessionTimeoutRef.current);
+    }
+
+    // Only end session if there are user messages (more than just the initial assistant message)
+    const userMessages = messages.filter(msg => msg.role === 'user');
+    if (userMessages.length > 0) {
+      try {
+        // Use sendBeacon for page unload scenarios, fetch for normal scenarios
+        const payload = JSON.stringify({
+          sessionId: sessionId,
+          messages: messages.map(msg => ({
+            role: msg.role,
+            content: msg.content,
+            timestamp: msg.timestamp.toISOString()
+          }))
+        });
+
+        // Try sendBeacon first (works during page unload)
+        if (navigator.sendBeacon) {
+          const blob = new Blob([payload], { type: 'application/json' });
+          const success = navigator.sendBeacon('/api/chat/end-session', blob);
+          if (success) {
+            console.log('Session ended via sendBeacon');
+            return;
+          }
+        }
+
+        // Fallback to fetch
+        const response = await fetch('/api/chat/end-session', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: payload,
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          console.log('Session end result:', result);
+          console.log('Session ended and email sent successfully');
+        } else {
+          console.error('Failed to end session:', response.status);
+        }
+      } catch (error) {
+        console.error('Error ending session:', error);
+      }
+    }
+  };
+
+  // Start session timeout when component mounts
+  useEffect(() => {
+    resetSessionTimeout();
+
+    // Cleanup timeout on unmount
+    return () => {
+      if (sessionTimeoutRef.current) {
+        clearTimeout(sessionTimeoutRef.current);
+      }
+    };
+  }, []); // Only run once on mount
+
+  // End session when user leaves the page
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Use sendBeacon for reliable delivery during page unload
+      const userMessages = messages.filter(msg => msg.role === 'user');
+      if (userMessages.length > 0 && isSessionActive) {
+        const payload = JSON.stringify({
+          sessionId: sessionId,
+          messages: messages.map(msg => ({
+            role: msg.role,
+            content: msg.content,
+            timestamp: msg.timestamp.toISOString()
+          }))
+        });
+
+        if (navigator.sendBeacon) {
+          const blob = new Blob([payload], { type: 'application/json' });
+          navigator.sendBeacon('/api/chat/end-session', blob);
+        }
+
+        setIsSessionActive(false);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && isSessionActive) {
+        // User switched tabs - extend timeout but don't reset activity time
+        setTimeout(() => {
+          if (document.visibilityState === 'hidden') {
+            const timeSinceLastActivity = new Date().getTime() - lastActivityRef.current.getTime();
+            if (timeSinceLastActivity >= 2 * 60 * 1000) { // 2 minutes of inactivity while hidden
+              endSession();
+            }
+          }
+        }, 30000); // Check after 30 seconds
+      } else if (document.visibilityState === 'visible') {
+        // User came back to tab - update activity time
+        lastActivityRef.current = new Date();
+      }
+    };
+
+    // Track user activity (typing, clicking, etc.)
+    const handleUserActivity = () => {
+      if (isSessionActive) {
+        lastActivityRef.current = new Date();
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener('mousedown', handleUserActivity);
+    document.addEventListener('keydown', handleUserActivity);
+    document.addEventListener('scroll', handleUserActivity);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('mousedown', handleUserActivity);
+      document.removeEventListener('keydown', handleUserActivity);
+      document.removeEventListener('scroll', handleUserActivity);
+    };
+  }, [messages, sessionId, isSessionActive]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || isLoading || !isSessionActive) return;
+
+    // Update activity time but DON'T reset timeout during conversation
+    lastActivityRef.current = new Date();
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      content: input,
+      role: 'user',
+      timestamp: new Date(),
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setIsLoading(true);
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: input,
+          sessionId: sessionId,
+          // Include all messages for context
+          messages: [...messages, userMessage].map(msg => ({
+            role: msg.role,
+            content: msg.content,
+            timestamp: msg.timestamp
+          }))
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to get response');
+      }
+
+      const data = await response.json();
+
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        content: data.message,
+        role: 'assistant',
+        timestamp: new Date(),
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
+
+      // Update activity time after assistant response
+      lastActivityRef.current = new Date();
+
+    } catch (error) {
+      console.error('Error:', error);
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        content: "I apologize, but I'm experiencing technical difficulties. Please contact us at relax@lcswingbeds.com or 843-489-8859.",
+        role: 'assistant',
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 100);
+    }
+  };
+
+
 
   // Function to parse content and render text with inline images
   const parseContentWithImages = (content: string) => {
@@ -81,61 +317,6 @@ export default function ChatInterface() {
     return parts;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading) return;
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      content: input,
-      role: 'user',
-      timestamp: new Date(),
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    setInput('');
-    setIsLoading(true);
-
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ message: input }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to get response');
-      }
-
-      const data = await response.json();
-
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content: data.message,
-        role: 'assistant',
-        timestamp: new Date(),
-      };
-
-      setMessages(prev => [...prev, assistantMessage]);
-
-    } catch (error) {
-      console.error('Error:', error);
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content: "I apologize, but I'm experiencing technical difficulties. Please contact us at relax@lcswingbeds.com or 843-489-8859.",
-        role: 'assistant',
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 100);
-    }
-  };
 
   // Quick suggestion buttons for first interaction
   const quickSuggestions = [
@@ -145,10 +326,12 @@ export default function ChatInterface() {
   ];
 
   const handleQuickSuggestion = (suggestion: string) => {
+    if (!isSessionActive) return;
     setInput(suggestion);
     inputRef.current?.focus();
+    // Update activity time
+    lastActivityRef.current = new Date();
   };
-
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
@@ -157,7 +340,10 @@ export default function ChatInterface() {
           <Bot className="w-5 h-5 text-white" />
           <div>
             <h3 className="text-white font-medium text-sm">Lowcountry Swing Beds Assistant</h3>
-            <p className="text-[#FFE3C6]/80 text-xs">Handcrafted in Charleston since 2012</p>
+            <p className="text-[#FFE3C6]/80 text-xs">
+              Handcrafted in Charleston since 2012
+              {!isSessionActive && <span className="ml-2 opacity-60">(Session Ended)</span>}
+            </p>
           </div>
         </div>
       </div>
@@ -177,7 +363,7 @@ export default function ChatInterface() {
                 <Bot className="w-3 h-3 text-[#204532]" />
               </div>
             )}
-            
+
             <div className={cn(
               "max-w-[85%] rounded-lg px-3 py-2 text-sm",
               message.role === 'user'
@@ -219,7 +405,7 @@ export default function ChatInterface() {
             )}
           </div>
         ))}
-        
+
         {/* Loading Indicator */}
         {isLoading && (
           <div className="flex gap-2 justify-start">
@@ -235,12 +421,22 @@ export default function ChatInterface() {
             </div>
           </div>
         )}
-        
+
+        {/* Session ended message */}
+        {!isSessionActive && (
+          <div className="flex gap-2 justify-center">
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 text-sm text-yellow-800 max-w-md text-center">
+              <p>This chat session has ended. Your conversation transcript has been sent to our team.</p>
+              <p className="text-xs mt-1">For immediate assistance, contact us at relax@lcswingbeds.com or 843-489-8859.</p>
+            </div>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Quick Suggestions - only shows initially */}
-      {messages.length === 1 && !isLoading && (
+      {/* Quick Suggestions - only shows initially and if session is active */}
+      {messages.length === 1 && !isLoading && isSessionActive && (
         <div className="px-3 py-2 flex-shrink-0">
           <p className="text-xs text-gray-600 mb-2">Quick questions:</p>
           <div className="flex flex-wrap gap-2">
@@ -265,17 +461,20 @@ export default function ChatInterface() {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask about swing beds..."
-            className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm placeholder-gray-500 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#204532] focus:border-[#204532]"
-            disabled={isLoading}
+            placeholder={isSessionActive ? "Ask about swing beds..." : "Session ended - contact us directly"}
+            className={cn(
+              "flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm placeholder-gray-500 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#204532] focus:border-[#204532]",
+              !isSessionActive && "opacity-50 cursor-not-allowed"
+            )}
+            disabled={isLoading || !isSessionActive}
           />
-          
+
           <button
             type="submit"
-            disabled={!input.trim() || isLoading}
+            disabled={!input.trim() || isLoading || !isSessionActive}
             className={cn(
               "w-9 h-9 rounded-lg flex items-center justify-center transition-colors flex-shrink-0",
-              input.trim() && !isLoading
+              input.trim() && !isLoading && isSessionActive
                 ? "bg-[#204532] hover:bg-[#61CE70] text-white"
                 : "bg-gray-200 text-gray-400 cursor-not-allowed"
             )}
@@ -287,10 +486,10 @@ export default function ChatInterface() {
             )}
           </button>
         </form>
-        
+
         {/* Footer Info */}
         <div className="flex items-center justify-center mt-2 text-xs text-gray-500">
-          <span>Handcrafted in Charleston • Est. 2012</span>  
+          <span>Handcrafted in Charleston • Est. 2012</span>
         </div>
       </div>
     </div>

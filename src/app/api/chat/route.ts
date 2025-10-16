@@ -1,3 +1,6 @@
+import dbConnect from '@/lib/mongodb';
+import { sendChatEmail } from '@/lib/sendgrid';
+import Chat from '@/models/Chat';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 
@@ -54,7 +57,7 @@ SIZING INFORMATION:
 - Custom sizes available upon request
 - Porch space recommendations:
   * Twin: Minimum 8x10 porch recommended
-  * Full: Minimum 10x12 porch recommended  
+  * Full: Minimum 10x12 porch recommended
   * Queen: Minimum 12x14 porch recommended
   * King: Minimum 14x16 porch recommended
 - Allow 2-3 feet clearance on all sides for safe swinging motion
@@ -330,21 +333,59 @@ A: Yes, on synthetic setting only—test a hidden area first.
 Q: When should I re-apply a fabric protector?
 A: After repeated deep cleanings or years of exposure. Clean and fully dry first, then apply a reputable outdoor-fabric protector per label.
 `;
+// Clean up old sessions when new requests come in
+async function cleanupOldSessions() {
+  try {
+    const cutoffTime = new Date(Date.now() - 10 * 60 * 1000); // 10 minutes ago
 
+    // Find sessions that are still active but haven't had activity in 10+ minutes
+    const oldSessions = await Chat.find({
+      sessionStatus: 'active',
+      lastActivity: { $lt: cutoffTime },
+      emailSent: false
+    });
+
+    for (const session of oldSessions) {
+      const hasUserMessages = session.messages.some(msg => msg.role === 'user');
+
+      if (hasUserMessages) {
+        // Mark as abandoned - these could be processed later if needed
+        session.sessionStatus = 'abandoned';
+      } else {
+        // No user messages, just mark as abandoned
+        session.sessionStatus = 'abandoned';
+      }
+
+      await session.save();
+    }
+
+    console.log(`Cleaned up ${oldSessions.length} old sessions`);
+  } catch (error) {
+    console.error('Error cleaning up old sessions:', error);
+  }
+}
 export async function POST(req: NextRequest) {
   try {
+    // Run cleanup occasionally (every ~50 requests)
+    if (Math.random() < 0.02) { // 2% chance
+      cleanupOldSessions();
+    }
+
     const body = await req.json();
-    console.log('Received body:', body); // Debug log
+    console.log('Received body:', body);
+
+    // Extract session info and customer data
+    const sessionId = body.sessionId || `session_${Date.now()}_${Math.random().toString(36).substring(2)}`;
+    const clientIP = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown';
+    const userAgent = req.headers.get('user-agent') || 'unknown';
 
     // Handle different possible formats
     let messages;
     if (body.messages && Array.isArray(body.messages)) {
       messages = body.messages;
     } else if (body.message && typeof body.message === 'string') {
-      // If single message string is sent, convert to messages array
       messages = [{ role: 'user', content: body.message }];
     } else if (typeof body === 'string') {
-      // If body is just a string
       messages = [{ role: 'user', content: body }];
     } else {
       console.log('Invalid format received:', body);
@@ -354,9 +395,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Connect to database
+    await dbConnect();
+
+    // Find existing chat session or create new one
+    let chatSession = await Chat.findOne({ sessionId });
+
+
     const systemMessage = {
       role: 'system' as const,
-      content: `You are a helpful customer service assistant for Lowcountry Swing Beds, a company that handcrafts premium swing beds in Charleston, South Carolina. 
+      content: `You are a helpful customer service assistant for Lowcountry Swing Beds, a company that handcrafts premium swing beds in Charleston, South Carolina.
 
 You help customers with questions about swing beds, installation, customization, shipping, product selection, cushion care, and company policies. Always be friendly, professional, and knowledgeable about our rich history and craftsmanship.
 
@@ -370,7 +418,7 @@ This will display the image right after the product heading, not at the end.
 
 ESCALATION RULES - When to direct customers to human support:
 - Customization questions beyond standard options
-- Non-swing custom woodworking projects  
+- Non-swing custom woodworking projects
 - Warranty claims or defect issues
 - Shipping damage claims
 - Complex installation questions beyond provided measurements (anchoring hardware selection, structural concerns)
@@ -435,14 +483,55 @@ RECOGNIZED KEYWORDS for common topics:
     };
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4-turbo-preview",
+      model: "gpt-4o-mini",
       messages: [systemMessage, ...messages],
       max_tokens: 1000,
       temperature: 0.7,
     });
 
+    const assistantResponse = completion.choices[0]?.message?.content || "I'm sorry, I couldn't process your request.";
+
+    // Add assistant response to messages
+    const updatedMessages = [
+      ...messages,
+      {
+        role: 'assistant' as const,
+        content: assistantResponse,
+        timestamp: new Date()
+      }
+    ];
+
+    // Save or update chat session in database
+    if (!chatSession) {
+      // Create new chat session
+      chatSession = new Chat({
+        sessionId,
+        messages: updatedMessages,
+        customerInfo: {
+          ipAddress: clientIP,
+          userAgent: userAgent,
+          timestamp: new Date()
+        },
+        sessionStatus: 'active',
+        lastActivity: new Date(),
+        emailSent: false
+      });
+    } else {
+      // Update existing session with new messages
+      chatSession.messages = updatedMessages;
+      chatSession.lastActivity = new Date();
+      // Keep session as active since there's new activity
+      if (chatSession.sessionStatus === 'abandoned') {
+        chatSession.sessionStatus = 'active';
+      }
+    }
+
+    await chatSession.save();
+
+    // NO IMMEDIATE EMAIL SENDING - emails will be sent when session ends
+
     return NextResponse.json({
-      message: completion.choices[0]?.message?.content || "I'm sorry, I couldn't process your request."
+      message: assistantResponse
     });
 
   } catch (error) {
