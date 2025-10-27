@@ -80,33 +80,25 @@ export default function ChatInterface() {
     const userMessages = messages.filter(msg => msg.role === 'user');
     if (userMessages.length > 0) {
       try {
-        // Use sendBeacon for page unload scenarios, fetch for normal scenarios
-        const payload = JSON.stringify({
+        const payload = {
           sessionId: sessionId,
           messages: messages.map(msg => ({
             role: msg.role,
             content: msg.content,
             timestamp: msg.timestamp.toISOString()
           }))
-        });
+        };
 
-        // Try sendBeacon first (works during page unload)
-        if (navigator.sendBeacon) {
-          const blob = new Blob([payload], { type: 'application/json' });
-          const success = navigator.sendBeacon('/api/chat/end-session', blob);
-          if (success) {
-            console.log('Session ended via sendBeacon');
-            return;
-          }
-        }
+        console.log('Ending session with payload:', { sessionId, messageCount: messages.length });
 
-        // Fallback to fetch
+        // Use fetch as primary method (more reliable)
         const response = await fetch('/api/chat/end-session', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: payload,
+          body: JSON.stringify(payload),
+          keepalive: true, // Ensures request completes even if page unloads
         });
 
         if (response.ok) {
@@ -114,7 +106,8 @@ export default function ChatInterface() {
           console.log('Session end result:', result);
           console.log('Session ended and email sent successfully');
         } else {
-          console.error('Failed to end session:', response.status);
+          const errorText = await response.text();
+          console.error('Failed to end session:', response.status, errorText);
         }
       } catch (error) {
         console.error('Error ending session:', error);
@@ -137,21 +130,37 @@ export default function ChatInterface() {
   // End session when user leaves the page
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      // Use sendBeacon for reliable delivery during page unload
+      // Send email when user closes/leaves the page
       const userMessages = messages.filter(msg => msg.role === 'user');
       if (userMessages.length > 0 && isSessionActive) {
-        const payload = JSON.stringify({
+        const payload = {
           sessionId: sessionId,
           messages: messages.map(msg => ({
             role: msg.role,
             content: msg.content,
             timestamp: msg.timestamp.toISOString()
           }))
-        });
+        };
 
+        console.log('Page unloading - ending session');
+
+        // Try sendBeacon first (best for page unload)
         if (navigator.sendBeacon) {
-          const blob = new Blob([payload], { type: 'application/json' });
-          navigator.sendBeacon('/api/chat/end-session', blob);
+          const success = navigator.sendBeacon(
+            '/api/chat/end-session',
+            JSON.stringify(payload)
+          );
+          console.log('SendBeacon result:', success);
+        } else {
+          // Fallback to synchronous fetch
+          fetch('/api/chat/end-session', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+            keepalive: true,
+          }).catch(err => console.error('Error in beforeunload fetch:', err));
         }
 
         setIsSessionActive(false);

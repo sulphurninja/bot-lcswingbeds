@@ -34,6 +34,13 @@ export interface ChatEmailData {
 
 export async function sendChatEmail(chatData: ChatEmailData): Promise<boolean> {
   try {
+    console.log('Starting email send process...');
+    console.log(`Session ID: ${chatData.sessionId}`);
+    console.log(`Number of messages: ${chatData.messages.length}`);
+    console.log(`SendGrid API Key present: ${!!SENDGRID_API_KEY}`);
+    console.log(`From Email: ${FROM_EMAIL}`);
+    console.log(`To Email: ${TO_EMAIL}`);
+
     // Format messages for email
     const formattedMessages = chatData.messages
       .map((msg, index) => {
@@ -96,11 +103,17 @@ This email was automatically generated from the Lowcountry Swing Beds chat inter
       html: emailHtml,
     };
 
-    await sgMail.send(msg);
+    console.log('Attempting to send email via SendGrid...');
+    const result = await sgMail.send(msg);
     console.log(`Chat email sent successfully for session: ${chatData.sessionId}`);
+    console.log('SendGrid response:', JSON.stringify(result, null, 2));
     return true;
   } catch (error) {
     console.error('Error sending chat email:', error);
+    if (error && typeof error === 'object' && 'response' in error) {
+      const sgError = error as { response?: { body?: unknown } };
+      console.error('SendGrid error details:', JSON.stringify(sgError.response?.body, null, 2));
+    }
     return false;
   }
 }
