@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey:process.env.OPENAI_API_KEY,
 });
 
 const PRODUCT_CATALOG = `
@@ -120,18 +120,21 @@ Q: How do I adjust the height of my swing bed after the rope has settled?
 A: A 1-inch to 1.5-inch rope may settle and stretch more over time than a .75-inch rope, meaning you may need to adjust your swing bed periodically. To adjust it, lift up on both sides of the swing and place a 5-gallon bucket or other sturdy support underneath your swing bed's right and left sides. Once the swing's weight is safely and fully supported by something other than the rope, un-tie each knot, pull the rope tight, and re-tie each knot at a higher location than before. After all four knots are re-tied, you can lift up on each side of the bed swing, remove the supports, and let the swing hang freely. To tighten the knots further, press down on each side of the swing bed until the knots are tight and the bed is level.
 
 Q: How long will it take for my bed swing and cushions to arrive?
-A: Our current lead time for delivery is 8-10 weeks for bed swings and 4-6 weeks for cushions. While we do our absolute best to stay on track, situations can occur which may slightly affect this timeline. Keep in mind the cushions will arrive separately from the swing, as they are sewn off-site at another facility, free of sawdust.
+A: Our current standard production lead time is 5-7 weeks for bed swings and 3-4 weeks for cushions/swing covers. All other accessories typically ship in 5-8 days. While we do our absolute best to stay on track, situations can occur which may slightly affect this timeline. Keep in mind the cushions will arrive separately from the swing, as they are sewn off-site at another facility, free of sawdust.
 
-We are able to expedite both swings and cushions for an additional fee.
+We are able to expedite orders for an additional fee. Expedited lead time is 2-4 weeks for swings and 1-2 weeks for cushions/swing covers.
 
-HOLDING FEE: If you are not ready for your swing after the current lead time has passed and your swing is ready to ship, we may charge a holding fee of $50/week. We have a very small warehouse, so it is difficult for us to hold a swing after the current lead time has passed. We have an excess of 100 orders in progress at any given time, so please consider these timelines if your home is under construction.
+Q: What if I order a swing but don’t need it right away?
+A: No worries! We will hold your order in the production pipeline until we are 30-45 days out from your desired delivery date to ensure nothing arrives earlier than needed. Please indicate your preferred delivery timeframe in the order notes as applicable at checkout.
+
+HOLDING FEE: If you are not ready for your swing after the current lead time has passed and your swing is ready to ship, we may charge a holding fee of $50/week. We have a very small warehouse, so it is difficult for us to hold a swing after the current lead time has passed.
 
 COMPANY INFORMATION:
 - Location: 7218 Peppermill Parkway, North Charleston, SC 29418
 - Phone: 843-489-8859
 - Email: relax@lcswingbeds.com
 - Hours: Monday to Friday: 8 a.m. - 5:30 p.m.
-- Current Lead Times: 8-10 Week Standard for swing beds, 4-6 weeks for cushions
+- Current Lead Times: 5-7 weeks for swing beds, 3-4 weeks for cushions/covers, 5-8 days for accessories
 - Expedited options available: 2-4 Week for additional fee
 - Free Shipping on Qualifying Orders Over $3,000
 - Nationwide Shipping in All 50 States (Continental US only)
@@ -333,6 +336,12 @@ A: Yes, on synthetic setting only—test a hidden area first.
 Q: When should I re-apply a fabric protector?
 A: After repeated deep cleanings or years of exposure. Clean and fully dry first, then apply a reputable outdoor-fabric protector per label.
 `;
+
+interface ChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
+
 // Clean up old sessions when new requests come in
 async function cleanupOldSessions() {
   try {
@@ -346,7 +355,7 @@ async function cleanupOldSessions() {
     });
 
     for (const session of oldSessions) {
-      const hasUserMessages = session.messages.some(msg => msg.role === 'user');
+      const hasUserMessages = session.messages.some((msg: ChatMessage) => msg.role === 'user');
 
       if (hasUserMessages) {
         // Mark as abandoned - these could be processed later if needed

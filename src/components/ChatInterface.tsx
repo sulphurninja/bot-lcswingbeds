@@ -27,7 +27,7 @@ export default function ChatInterface() {
   const [isSessionActive, setIsSessionActive] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const sessionTimeoutRef = useRef<NodeJS.Timeout>();
+  const sessionTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const lastActivityRef = useRef<Date>(new Date());
 
   const scrollToBottom = () => {

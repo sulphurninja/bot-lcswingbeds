@@ -3,6 +3,12 @@ import dbConnect from '@/lib/mongodb';
 import Chat from '@/models/Chat';
 import { sendChatEmail } from '@/lib/sendgrid';
 
+interface ChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp?: string | Date;
+}
+
 export async function POST(req: NextRequest) {
   try {
     console.log('=== END SESSION ENDPOINT CALLED ===');
@@ -60,7 +66,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Only send email if session hasn't been processed yet and has user messages
-    const hasUserMessages = chatSession.messages.some(msg => msg.role === 'user');
+    const hasUserMessages = chatSession.messages.some((msg: ChatMessage) => msg.role === 'user');
 
     console.log(`Processing session ${sessionId}: hasUserMessages=${hasUserMessages}, emailSent=${chatSession.emailSent}, status=${chatSession.sessionStatus}`);
 
@@ -70,7 +76,7 @@ export async function POST(req: NextRequest) {
         let messagesToSend = messages && messages.length > 0 ? messages : chatSession.messages;
         
         // Convert ISO string timestamps back to Date objects if needed
-        messagesToSend = messagesToSend.map(msg => ({
+        messagesToSend = messagesToSend.map((msg: ChatMessage) => ({
           ...msg,
           timestamp: typeof msg.timestamp === 'string' ? new Date(msg.timestamp) : msg.timestamp
         }));
