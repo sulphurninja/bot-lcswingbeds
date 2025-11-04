@@ -127,8 +127,6 @@ We are able to expedite orders for an additional fee. Expedited lead time is 2-4
 Q: What if I order a swing but don’t need it right away?
 A: No worries! We will hold your order in the production pipeline until we are 30-45 days out from your desired delivery date to ensure nothing arrives earlier than needed. Please indicate your preferred delivery timeframe in the order notes as applicable at checkout.
 
-HOLDING FEE: If you are not ready for your swing after the current lead time has passed and your swing is ready to ship, we may charge a holding fee of $50/week. We have a very small warehouse, so it is difficult for us to hold a swing after the current lead time has passed.
-
 COMPANY INFORMATION:
 - Location: 7218 Peppermill Parkway, North Charleston, SC 29418
 - Phone: 843-489-8859
